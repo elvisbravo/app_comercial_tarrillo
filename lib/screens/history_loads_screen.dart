@@ -1,0 +1,680 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../models/historial_data.dart';
+import '../services/api_client.dart';
+import '../services/historial_service.dart';
+
+class HistoryLoadsScreen extends StatefulWidget {
+  const HistoryLoadsScreen({super.key});
+
+  @override
+  State<HistoryLoadsScreen> createState() => _HistoryLoadsScreenState();
+}
+
+class _HistoryLoadsScreenState extends State<HistoryLoadsScreen> {
+  static const Color primary = Color(0xFF00236F);
+  static const Color primaryContainer = Color(0xFF1E3A8A);
+  static const Color secondary = Color(0xFF006C49);
+  static const Color danger = Color(0xFFBA1A1A);
+  static const Color warning = Color(0xFFB45309);
+  static const Color surface = Color(0xFFF9F9FF);
+  static const Color surfaceContainerLow = Color(0xFFF0F3FF);
+  static const Color surfaceContainerLowest = Color(0xFFFFFFFF);
+  static const Color surfaceContainer = Color(0xFFE7EEFE);
+  static const Color outlineVariant = Color(0xFFC5C5D3);
+  static const Color onSurface = Color(0xFF151C27);
+  static const Color onSurfaceVariant = Color(0xFF444651);
+
+  HistorialCargas? _data;
+  bool _isLoading = true;
+  String? _error;
+  String _rango = '7d';
+  final _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  ({String? desde, String? hasta}) _rangoFechas() {
+    final hoy = DateTime.now();
+    String fmt(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    switch (_rango) {
+      case 'hoy':
+        return (desde: fmt(hoy), hasta: fmt(hoy));
+      case '30d':
+        return (desde: fmt(hoy.subtract(const Duration(days: 30))), hasta: fmt(hoy));
+      case 'todo':
+        return (desde: null, hasta: null);
+      case '7d':
+      default:
+        return (desde: fmt(hoy.subtract(const Duration(days: 7))), hasta: fmt(hoy));
+    }
+  }
+
+  Future<void> _cargar() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final r = _rangoFechas();
+      final data = await HistorialService.getCargas(
+        fechaDesde: r.desde,
+        fechaHasta: r.hasta,
+        buscar: _searchController.text.trim().isEmpty ? null : _searchController.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _data = data;
+        _isLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Error de conexión. Verifica tu conexión a internet.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  double get _totalUnidades {
+    return _data?.items.fold<double>(0, (s, c) => s + c.totalUnidades) ?? 0;
+  }
+
+  Future<void> _abrirDetalle(int id) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DetalleCargaSheet(cargaId: id),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: surface,
+      appBar: AppBar(
+        backgroundColor: primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Text('Historial de Cargas',
+            style: GoogleFonts.manrope(fontWeight: FontWeight.w600)),
+        actions: [
+          IconButton(
+            onPressed: _isLoading ? null : _cargar,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Actualizar',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : (_error != null ? _buildError() : _buildContent()),
+    );
+  }
+
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 64, color: danger),
+            const SizedBox(height: 16),
+            Text(_error!, textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 15)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _cargar,
+              style: ElevatedButton.styleFrom(backgroundColor: primary, foregroundColor: Colors.white),
+              child: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    final cargas = _data?.items ?? const [];
+    return Column(
+      children: [
+        _buildFiltros(),
+        _buildResumen(),
+        Expanded(
+          child: cargas.isEmpty
+              ? _buildEmpty()
+              : RefreshIndicator(
+                  onRefresh: _cargar,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    itemCount: cargas.length,
+                    itemBuilder: (_, i) => _buildCargaCard(cargas[i]),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFiltros() {
+    return Container(
+      color: surfaceContainerLowest,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: surfaceContainerLow,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: outlineVariant),
+            ),
+            child: TextField(
+              controller: _searchController,
+              onSubmitted: (_) => _cargar(),
+              decoration: InputDecoration(
+                hintText: 'Buscar por N° correlativo o motivo...',
+                hintStyle: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 14),
+                prefixIcon: const Icon(Icons.search, color: onSurfaceVariant),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _rangoChip('hoy', 'Hoy'),
+                const SizedBox(width: 6),
+                _rangoChip('7d', '7 días'),
+                const SizedBox(width: 6),
+                _rangoChip('30d', '30 días'),
+                const SizedBox(width: 6),
+                _rangoChip('todo', 'Todo'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _rangoChip(String value, String label) {
+    final selected = _rango == value;
+    return InkWell(
+      onTap: () {
+        setState(() => _rango = value);
+        _cargar();
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? primary : surfaceContainerLow,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: primary.withOpacity(0.3)),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : primary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResumen() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [primary, primaryContainer],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Total unidades',
+                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text(_formatNumero(_totalUnidades),
+                    style: GoogleFonts.manrope(
+                        color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+          Container(width: 1, height: 40, color: Colors.white24),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('Cargas',
+                  style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+              const SizedBox(height: 4),
+              Text('${_data?.items.length ?? 0}',
+                  style: GoogleFonts.manrope(
+                      color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatNumero(double n) {
+    if (n % 1 == 0) return n.toInt().toString();
+    return n.toStringAsFixed(2);
+  }
+
+  Widget _buildEmpty() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.inventory, size: 80, color: Colors.grey[300]),
+            const SizedBox(height: 12),
+            Text('Sin cargas',
+                style: GoogleFonts.manrope(
+                    color: onSurface, fontSize: 18, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text('No hay cargas registradas en el rango seleccionado.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCargaCard(CargaItem c) {
+    final isActive = c.estado == 1;
+    final estadoColor = isActive ? secondary : Colors.grey;
+    return InkWell(
+      onTap: () => _abrirDetalle(c.id),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(top: 12),
+        decoration: BoxDecoration(
+          color: surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: outlineVariant),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.inventory_2, color: primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${c.serie ?? ''}-${c.correlativo ?? ''}',
+                        style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold, fontSize: 15, color: onSurface)),
+                    const SizedBox(height: 2),
+                    Text(c.motivo ?? 'Sin motivo',
+                        style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today, size: 11, color: onSurfaceVariant),
+                        const SizedBox(width: 4),
+                        Text(c.fecha ?? '-',
+                            style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 11)),
+                        const SizedBox(width: 10),
+                        Icon(Icons.access_time, size: 11, color: onSurfaceVariant),
+                        const SizedBox(width: 4),
+                        Text(c.hora ?? '-',
+                            style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 11)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('${_formatNumero(c.totalUnidades)} und.',
+                      style: GoogleFonts.manrope(
+                          fontSize: 15, fontWeight: FontWeight.w700, color: primary)),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: estadoColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: estadoColor.withOpacity(0.3)),
+                    ),
+                    child: Text(c.estadoLegible,
+                        style: GoogleFonts.inter(
+                            fontSize: 10, fontWeight: FontWeight.w700, color: estadoColor)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =================== Detalle de carga ===================
+
+class _DetalleCargaSheet extends StatefulWidget {
+  final int cargaId;
+  const _DetalleCargaSheet({required this.cargaId});
+
+  @override
+  State<_DetalleCargaSheet> createState() => _DetalleCargaSheetState();
+}
+
+class _DetalleCargaSheetState extends State<_DetalleCargaSheet> {
+  CargaDetalle? _detalle;
+  bool _loading = true;
+  String? _error;
+
+  static const Color primary = Color(0xFF00236F);
+  static const Color secondary = Color(0xFF006C49);
+  static const Color onSurface = Color(0xFF151C27);
+  static const Color onSurfaceVariant = Color(0xFF444651);
+  static const Color surfaceContainerLow = Color(0xFFF0F3FF);
+  static const Color outlineVariant = Color(0xFFC5C5D3);
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    try {
+      final d = await HistorialService.getCargaDetalle(widget.cargaId);
+      if (!mounted) return;
+      setState(() {
+        _detalle = d;
+        _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Error al cargar el detalle';
+        _loading = false;
+      });
+    }
+  }
+
+  String _formatNumero(double n) {
+    if (n % 1 == 0) return n.toInt().toString();
+    return n.toStringAsFixed(2);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return Padding(
+      padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFFFFF),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        constraints: BoxConstraints(maxHeight: mq.size.height * 0.9),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+              child: Row(
+                children: [
+                  Text('Detalle de carga',
+                      style: GoogleFonts.manrope(
+                          fontSize: 20, fontWeight: FontWeight.w700, color: primary)),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(_error!,
+                                style: GoogleFonts.inter(color: const Color(0xFFBA1A1A))),
+                          ),
+                        )
+                      : _buildBody(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    final d = _detalle!;
+    final t = d.traslado;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: surfaceContainerLow,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: outlineVariant),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: primary.withOpacity(0.3)),
+                      ),
+                      child: Text('${t.serie ?? ''}-${t.correlativo ?? ''}',
+                          style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: primary)),
+                    ),
+                    const Spacer(),
+                    Text(t.estadoLegible,
+                        style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: secondary)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _kv('Motivo', t.motivo ?? '-'),
+                _kv('Fecha', '${t.fecha ?? '-'} ${t.hora ?? ''}'),
+                if (t.usuarioNombre != null) _kv('Usuario', t.usuarioNombre!),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _miniStat('Unidades',
+                          _formatNumero(d.totalUnidades), primary),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _miniStat('Valor total',
+                          'S/ ${d.totalValor.toStringAsFixed(2)}', secondary),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text('Productos (${d.productos.length})',
+              style: GoogleFonts.manrope(fontSize: 16, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          _tablaProductos(d.productos),
+        ],
+      ),
+    );
+  }
+
+  Widget _kv(String k, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+                width: 80,
+                child: Text('$k:',
+                    style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 12))),
+            Expanded(
+              child: Text(v,
+                  style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600, fontSize: 13, color: onSurface)),
+            ),
+          ],
+        ),
+      );
+
+  Widget _miniStat(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 11)),
+          const SizedBox(height: 2),
+          Text(value,
+              style: GoogleFonts.manrope(
+                  fontSize: 16, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _tablaProductos(List<ProductoCarga> list) {
+    if (list.isEmpty) {
+      return Text('Sin productos.', style: GoogleFonts.inter(color: onSurfaceVariant));
+    }
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < list.length; i++)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: i.isEven ? const Color(0xFFFFFFFF) : surfaceContainerLow,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(list[i].nombre,
+                            style: GoogleFonts.inter(
+                                fontSize: 13, fontWeight: FontWeight.w600, color: onSurface),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                      const SizedBox(width: 6),
+                      Text('S/ ${list[i].subtotal.toStringAsFixed(2)}',
+                          style: GoogleFonts.manrope(
+                              fontSize: 13, fontWeight: FontWeight.w700, color: primary)),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text('x${_formatNumero(list[i].cantidad)}',
+                          style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 11)),
+                      const SizedBox(width: 12),
+                      Text('Unit: S/ ${list[i].precioUnitario.toStringAsFixed(2)}',
+                          style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 11)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

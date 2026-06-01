@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_client.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -71,6 +72,11 @@ class _LoginScreenState extends State<LoginScreen> {
         // Guardar sesión
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('userData', jsonEncode(data['data']?['user']));
+
+        final apiToken = data['data']?['api_token'];
+        if (apiToken is String && apiToken.isNotEmpty) {
+          await ApiClient.setToken(apiToken);
+        }
 
         if (mounted) {
           Navigator.pushReplacement(

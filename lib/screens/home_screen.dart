@@ -1,14 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/dashboard_summary.dart';
+import '../services/api_client.dart';
+import '../services/dashboard_service.dart';
 import 'login_screen.dart';
 import 'sale_registration_screen.dart';
 import 'collection_registration_screen.dart';
+import 'history_sales_screen.dart';
+import 'history_collections_screen.dart';
+import 'history_loads_screen.dart';
+import '../widgets/offline_banner.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final Map<String, dynamic>? userData;
 
   const HomeScreen({super.key, this.userData});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  DashboardSummary? _dashboard;
+  String? _error;
+  bool _isLoading = true;
 
   // Theme Colors
   static const Color background = Color(0xFFF9F9FF);
@@ -29,8 +45,55 @@ class HomeScreen extends StatelessWidget {
   static const Color onSurfaceVariant = Color(0xFF444651);
 
   @override
+  void initState() {
+    super.initState();
+    _loadDashboard();
+  }
+
+  Future<void> _loadDashboard() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final summary = await DashboardService.getDashboard();
+      if (!mounted) return;
+      setState(() {
+        _dashboard = summary;
+        _isLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _isLoading = false;
+      });
+      if (e.statusCode == 401) {
+        _logout();
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Error de conexión. Verifica tu conexión a internet.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _logout() async {
+    await ApiClient.clearToken();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('userData');
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Basic responsive check
     final isDesktop = MediaQuery.of(context).size.width >= 768;
 
     return Scaffold(
@@ -55,15 +118,20 @@ class HomeScreen extends StatelessWidget {
       child: Column(
         children: [
           _buildTopAppBar(context),
+          const OfflineBanner(),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(
-                left: 16.0,
-                right: 16.0,
-                top: 16.0,
-                bottom: 80.0,
+            child: RefreshIndicator(
+              onRefresh: _loadDashboard,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.only(
+                  left: 16.0,
+                  right: 16.0,
+                  top: 16.0,
+                  bottom: 80.0,
+                ),
+                child: _buildMainContent(context),
               ),
-              child: _buildMainContent(context),
             ),
           ),
         ],
@@ -79,10 +147,15 @@ class HomeScreen extends StatelessWidget {
           child: Column(
             children: [
               _buildTopAppBar(context, isDesktop: true),
+              const OfflineBanner(),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(32.0),
-                  child: _buildMainContent(context),
+                child: RefreshIndicator(
+                  onRefresh: _loadDashboard,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(32.0),
+                    child: _buildMainContent(context),
+                  ),
                 ),
               ),
             ],
@@ -93,7 +166,8 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildDrawer(BuildContext context) {
-    String userName = userData?['name'] ?? 'Agente Cobrador';
+    final userName = widget.userData?['name'] ?? 'Vendedor';
+    final sectores = _dashboard?.sectores ?? const <SectorAsignado>[];
 
     return Container(
       width: 320,
@@ -148,25 +222,30 @@ class HomeScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            userName,
-                            style: GoogleFonts.inter(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: onSurface,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              userName,
+                              style: GoogleFonts.inter(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: onSurface,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          Text(
-                            'Zona Norte',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: onSurfaceVariant,
+                            Text(
+                              _dashboard == null && _isLoading
+                                  ? 'Cargando sectores...'
+                                  : '${_dashboard?.sectoresTotal ?? 0} sectores asignados',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: onSurfaceVariant,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -174,45 +253,60 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              children: [
-                _buildDrawerItem(
-                  Icons.location_on,
-                  'Pampa Hermosa',
-                  isActive: true,
-                ),
-                _buildDrawerItem(Icons.location_on, 'Alianza'),
-                _buildDrawerItem(Icons.location_on, 'Yurimaguas'),
-                const SizedBox(height: 24),
-                _buildDrawerItem(Icons.settings, 'Configuración'),
-                const Divider(color: outlineVariant),
-                ListTile(
-                  leading: const Icon(Icons.logout, color: Color(0xFFBA1A1A)),
-                  title: Text(
-                    'Cerrar Sesión',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFFBA1A1A),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  onTap: () async {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.remove('userData');
-                    if (context.mounted) {
-                      Navigator.pushAndRemoveUntil(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const LoginScreen(),
-                        ),
-                        (route) => false,
-                      );
-                    }
-                  },
-                ),
-              ],
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+            child: Text(
+              'MIS SECTORES',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+                color: onSurfaceVariant,
+              ),
             ),
+          ),
+          Expanded(
+            child: sectores.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Text(
+                        _isLoading
+                            ? 'Cargando...'
+                            : 'No tienes sectores asignados hoy.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          color: onSurfaceVariant,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    children: [
+                      for (var i = 0; i < sectores.length; i++)
+                        _buildDrawerItem(
+                          Icons.location_on,
+                          sectores[i].nombre,
+                          isActive: i == 0,
+                        ),
+                      const SizedBox(height: 24),
+                      _buildDrawerItem(Icons.settings, 'Configuración'),
+                      const Divider(color: outlineVariant),
+                      ListTile(
+                        leading: const Icon(Icons.logout, color: Color(0xFFBA1A1A)),
+                        title: Text(
+                          'Cerrar Sesión',
+                          style: GoogleFonts.inter(
+                            color: const Color(0xFFBA1A1A),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        onTap: _logout,
+                      ),
+                    ],
+                  ),
           ),
           Container(
             padding: const EdgeInsets.all(24),
@@ -292,6 +386,11 @@ class HomeScreen extends StatelessWidget {
           Row(
             children: [
               IconButton(
+                icon: const Icon(Icons.refresh, color: primary),
+                onPressed: _isLoading ? null : _loadDashboard,
+                tooltip: 'Actualizar',
+              ),
+              IconButton(
                 icon: const Icon(Icons.notifications_none, color: primary),
                 onPressed: () {},
               ),
@@ -322,43 +421,15 @@ class HomeScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Stats Cards
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final isDesktop = constraints.maxWidth > 600;
-            final cards = [
-              _buildStatCard('Total Ventas', 'S/ 45,200.00', Icons.attach_money, primary),
-              _buildStatCard('Total Cobranzas', 'S/ 12,450.00', Icons.payments, secondary),
-              _buildStatCard('Total Stock Productos', '1,245', Icons.inventory_2, const Color(0xFF6E2C00)),
-              _buildStatCard('Por Cobrar', 'S/ 32,750.00', Icons.pending_actions, const Color(0xFFB45309)),
-              _buildStatCard('Total Sectores', '8', Icons.location_city, const Color(0xFF7C3AED)),
-            ];
-
-            if (isDesktop) {
-              return GridView.count(
-                crossAxisCount: 5,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
-                childAspectRatio: 1.5,
-                children: cards,
-              );
-            } else {
-              return Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: cards.map((c) => SizedBox(
-                  width: (constraints.maxWidth - 16) / 2 - 8,
-                  child: c,
-                )).toList(),
-              );
-            }
-          },
-        ),
+        if (_error != null) _buildErrorBanner(),
+        if (_dashboard == null && _isLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 80),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          _buildStatsGrid(context),
         const SizedBox(height: 32),
-
-        // Action Links
         Text(
           'Acciones Rápidas',
           style: GoogleFonts.manrope(
@@ -383,7 +454,110 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+  Widget _buildErrorBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEE2E2),
+        border: Border.all(color: const Color(0xFFBA1A1A).withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Color(0xFFBA1A1A)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _error!,
+              style: GoogleFonts.inter(
+                color: const Color(0xFFBA1A1A),
+                fontSize: 13,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _loadDashboard,
+            child: const Text('Reintentar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsGrid(BuildContext context) {
+    final d = _dashboard;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth > 600;
+        final cards = [
+          _buildStatCard(
+            'Total Ventas',
+            _formatCurrency(d?.ventasTotal ?? 0),
+            Icons.attach_money,
+            primary,
+            subtitle: d == null ? null : '${d.ventasCantidad} operaciones',
+          ),
+          _buildStatCard(
+            'Total Cobranzas',
+            _formatCurrency(d?.cobranzasTotal ?? 0),
+            Icons.payments,
+            secondary,
+            subtitle: d == null ? null : '${d.cobranzasCantidad} cobros',
+          ),
+          _buildStatCard(
+            'Total Stock Productos',
+            _formatNumber(d?.stockUnidades ?? 0),
+            Icons.inventory_2,
+            const Color(0xFF6E2C00),
+            subtitle: d == null ? null : '${d?.stockItems ?? 0} productos',
+          ),
+          _buildStatCard(
+            'Por Cobrar',
+            _formatCurrency(d?.porCobrar ?? 0),
+            Icons.pending_actions,
+            const Color(0xFFB45309),
+          ),
+          _buildStatCard(
+            'Total Sectores',
+            _formatNumber(d?.sectoresTotal ?? 0),
+            Icons.location_city,
+            const Color(0xFF7C3AED),
+            subtitle: d == null ? null : 'asignados hoy',
+          ),
+        ];
+
+        if (isDesktop) {
+          return GridView.count(
+            crossAxisCount: 5,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            childAspectRatio: 1.5,
+            children: cards,
+          );
+        } else {
+          return Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: cards.map((c) => SizedBox(
+              width: (constraints.maxWidth - 16) / 2 - 8,
+              child: c,
+            )).toList(),
+          );
+        }
+      },
+    );
+  }
+
+  Widget _buildStatCard(
+    String label,
+    String value,
+    IconData icon,
+    Color color, {
+    String? subtitle,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -426,6 +600,16 @@ class HomeScreen extends StatelessWidget {
               color: onSurfaceVariant,
             ),
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -443,6 +627,21 @@ class HomeScreen extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const CollectionRegistrationScreen()),
+          );
+        } else if (label == 'Historial de Ventas') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const HistorySalesScreen()),
+          );
+        } else if (label == 'Historial de Cobranzas') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const HistoryCollectionsScreen()),
+          );
+        } else if (label == 'Historial de Carga') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const HistoryLoadsScreen()),
           );
         }
       },
@@ -472,470 +671,23 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildProgressCard() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: outlineVariant),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'PROGRESO DE RECAUDACIÓN DIARIA',
-            style: GoogleFonts.workSans(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: onSurfaceVariant,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'S/ 12,450.00',
-                style: GoogleFonts.manrope(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w700,
-                  color: primary,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: Row(
-                  children: [
-                    const Icon(Icons.trending_up, color: secondary, size: 16),
-                    const SizedBox(width: 4),
-                    Text(
-                      '+12% vs ayer',
-                      style: GoogleFonts.inter(color: secondary, fontSize: 16),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Meta del Día',
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: onSurface,
-                ),
-              ),
-              Text(
-                'S/ 15,000.00 (83%)',
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: primary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: 0.83,
-              backgroundColor: surfaceContainer,
-              valueColor: const AlwaysStoppedAnimation<Color>(primary),
-              minHeight: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+String _formatCurrency(double value) {
+  final fixed = value.toStringAsFixed(2);
+  final parts = fixed.split('.');
+  final intPart = parts[0];
+  final decPart = parts[1];
+  final withCommas = intPart.replaceAllMapped(
+    RegExp(r'(\d{1,3})(?=(\d{3})*$)'),
+    (m) => '${m[1]},',
+  );
+  return 'S/ $withCommas.$decPart';
+}
 
-  Widget _buildQuickActionsCard() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: primaryContainer,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black26,
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.map, color: Colors.white),
-                  ),
-                  const SizedBox(width: 16),
-                  Text(
-                    'Mi Ruta',
-                    style: GoogleFonts.inter(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-              const Icon(Icons.arrow_forward, color: Colors.white),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: outlineVariant),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: tertiaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.pending_actions,
-                      color: onTertiaryContainer,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Text(
-                    'Pendientes',
-                    style: GoogleFonts.inter(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: onSurface,
-                    ),
-                  ),
-                ],
-              ),
-              Text(
-                '24',
-                style: GoogleFonts.inter(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildZoneCard(
-    String name,
-    String amount,
-    String visits,
-    String statusLabel,
-    Color statusBg,
-    Color statusColor,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: outlineVariant),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: onSurface,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: statusBg.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  statusLabel,
-                  style: GoogleFonts.inter(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: statusColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'RECAUDADO',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    amount,
-                    style: GoogleFonts.workSans(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: onSurface,
-                    ),
-                  ),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    'VISITAS',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    visits,
-                    style: GoogleFonts.workSans(fontSize: 14, color: onSurface),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDataGrid() {
-    return Container(
-      decoration: BoxDecoration(
-        color: surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: outlineVariant),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Últimas Cobranzas Realizadas',
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.bold,
-                    color: primary,
-                  ),
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.filter_list,
-                        color: onSurfaceVariant,
-                      ),
-                      onPressed: () {},
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.download, color: onSurfaceVariant),
-                      onPressed: () {},
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: MaterialStateProperty.all(surfaceContainer),
-              columns: [
-                DataColumn(
-                  label: Text(
-                    'CLIENTE',
-                    style: GoogleFonts.workSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                DataColumn(
-                  label: Text(
-                    'ZONA',
-                    style: GoogleFonts.workSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                DataColumn(
-                  label: Text(
-                    'MONTO',
-                    style: GoogleFonts.workSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                DataColumn(
-                  label: Text(
-                    'ESTADO',
-                    style: GoogleFonts.workSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                DataColumn(
-                  label: Text(
-                    'HORA',
-                    style: GoogleFonts.workSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-              rows: [
-                _buildDataRow(
-                  'Ricardo Sánchez',
-                  'Pampa Hermosa',
-                  'S/ 450.00',
-                  'Pagado',
-                  secondary,
-                  secondary.withOpacity(0.1),
-                  '10:45 AM',
-                ),
-                _buildDataRow(
-                  'Elena Portocarrero',
-                  'Alianza',
-                  'S/ 200.00',
-                  'Pagado',
-                  secondary,
-                  secondary.withOpacity(0.1),
-                  '10:30 AM',
-                ),
-                _buildDataRow(
-                  'Marcos Trigoso',
-                  'Yurimaguas',
-                  'S/ 1,200.00',
-                  'Compromiso',
-                  tertiaryContainer,
-                  tertiaryContainer.withOpacity(0.1),
-                  '09:55 AM',
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  DataRow _buildDataRow(
-    String client,
-    String zone,
-    String amount,
-    String status,
-    Color statusColor,
-    Color statusBg,
-    String time,
-  ) {
-    return DataRow(
-      cells: [
-        DataCell(
-          Text(client, style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-        ),
-        DataCell(
-          Text(
-            zone,
-            style: GoogleFonts.inter(fontSize: 14, color: onSurfaceVariant),
-          ),
-        ),
-        DataCell(
-          Text(
-            amount,
-            style: GoogleFonts.workSans(
-              fontWeight: FontWeight.w500,
-              color: primary,
-            ),
-          ),
-        ),
-        DataCell(
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: statusBg,
-              border: Border.all(color: statusColor.withOpacity(0.2)),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              status,
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: statusColor,
-              ),
-            ),
-          ),
-        ),
-        DataCell(
-          Text(
-            time,
-            style: GoogleFonts.inter(fontSize: 12, color: onSurfaceVariant),
-          ),
-        ),
-      ],
-    );
-  }
+String _formatNumber(num value) {
+  return value.toInt().toString().replaceAllMapped(
+    RegExp(r'(\d{1,3})(?=(\d{3})*$)'),
+    (m) => '${m[1]},',
+  );
 }
