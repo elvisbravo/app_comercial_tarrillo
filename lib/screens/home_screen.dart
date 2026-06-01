@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
+import 'sale_registration_screen.dart';
+import 'collection_registration_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   final Map<String, dynamic>? userData;
@@ -61,7 +63,7 @@ class HomeScreen extends StatelessWidget {
                 top: 16.0,
                 bottom: 80.0,
               ),
-              child: _buildMainContent(),
+              child: _buildMainContent(context),
             ),
           ),
         ],
@@ -80,7 +82,7 @@ class HomeScreen extends StatelessWidget {
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(32.0),
-                  child: _buildMainContent(),
+                  child: _buildMainContent(context),
                 ),
               ),
             ],
@@ -316,121 +318,158 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMainContent() {
+  Widget _buildMainContent(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Bento Grid top
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final isDesktop = constraints.maxWidth > 600;
-            if (isDesktop) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(flex: 8, child: _buildProgressCard()),
-                  const SizedBox(width: 20),
-                  Expanded(flex: 4, child: _buildQuickActionsCard()),
-                ],
-              );
-            } else {
-              return Column(
-                children: [
-                  _buildProgressCard(),
-                  const SizedBox(height: 20),
-                  _buildQuickActionsCard(),
-                ],
-              );
-            }
-          },
-        ),
-        const SizedBox(height: 32),
-
-        // Zones
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Zonas Destacadas Hoy',
-              style: GoogleFonts.manrope(
-                fontSize: 24,
-                fontWeight: FontWeight.w600,
-                color: onSurface,
-              ),
-            ),
-            TextButton(
-              onPressed: () {},
-              child: Text(
-                'VER TODAS',
-                style: GoogleFonts.workSans(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: primary,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
+        // Stats Cards
         LayoutBuilder(
           builder: (context, constraints) {
             final isDesktop = constraints.maxWidth > 600;
             final cards = [
-              _buildZoneCard(
-                'Pampa Hermosa',
-                'S/ 4,200',
-                '18/20',
-                'LÍDER',
-                secondaryContainer,
-                onSecondaryContainer,
-              ),
-              _buildZoneCard(
-                'Alianza',
-                'S/ 3,150',
-                '12/15',
-                'EN PROGRESO',
-                surfaceContainer,
-                onSurfaceVariant,
-              ),
-              _buildZoneCard(
-                'Yurimaguas',
-                'S/ 2,800',
-                '10/22',
-                'EN PROGRESO',
-                surfaceContainer,
-                onSurfaceVariant,
-              ),
+              _buildStatCard('Total Ventas', 'S/ 45,200.00', Icons.attach_money, primary),
+              _buildStatCard('Total Cobranzas', 'S/ 12,450.00', Icons.payments, secondary),
+              _buildStatCard('Total Stock Productos', '1,245', Icons.inventory_2, const Color(0xFF6E2C00)),
+              _buildStatCard('Por Cobrar', 'S/ 32,750.00', Icons.pending_actions, const Color(0xFFB45309)),
+              _buildStatCard('Total Sectores', '8', Icons.location_city, const Color(0xFF7C3AED)),
             ];
 
             if (isDesktop) {
               return GridView.count(
-                crossAxisCount: 3,
+                crossAxisCount: 5,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 20,
-                crossAxisSpacing: 20,
-                childAspectRatio: 2.2,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 1.5,
                 children: cards,
               );
             } else {
-              return Column(
-                children: cards
-                    .map(
-                      (c) => Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: c,
-                      ),
-                    )
-                    .toList(),
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: cards.map((c) => SizedBox(
+                  width: (constraints.maxWidth - 16) / 2 - 8,
+                  child: c,
+                )).toList(),
               );
             }
           },
         ),
         const SizedBox(height: 32),
 
-        // Data Grid
-        _buildDataGrid(),
+        // Action Links
+        Text(
+          'Acciones Rápidas',
+          style: GoogleFonts.manrope(
+            fontSize: 24,
+            fontWeight: FontWeight.w600,
+            color: onSurface,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _buildActionLink('Registrar Venta', Icons.add_shopping_cart, context),
+            _buildActionLink('Registrar Cobranza', Icons.money_off, context),
+            _buildActionLink('Historial de Ventas', Icons.history, context),
+            _buildActionLink('Historial de Cobranzas', Icons.receipt_long, context),
+            _buildActionLink('Historial de Carga', Icons.inventory, context),
+          ],
+        ),
       ],
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: outlineVariant),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: GoogleFonts.manrope(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionLink(String label, IconData icon, BuildContext context) {
+    return InkWell(
+      onTap: () {
+        if (label == 'Registrar Venta') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SaleRegistrationScreen()),
+          );
+        } else if (label == 'Registrar Cobranza') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const CollectionRegistrationScreen()),
+          );
+        }
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: surfaceContainer,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: primary, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: primary,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
