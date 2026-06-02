@@ -54,6 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final apiUrl = dotenv.env['API_URL'] ?? 'http://10.0.2.2:8000/api';
+      debugPrint('[Login] POST to $apiUrl/login');
       final response = await http.post(
         Uri.parse('$apiUrl/login'),
         headers: {
@@ -65,6 +66,9 @@ class _LoginScreenState extends State<LoginScreen> {
           'password': _passwordController.text,
         }),
       );
+
+      debugPrint('[Login] Response status: ${response.statusCode}');
+      debugPrint('[Login] Response body: ${response.body}');
 
       final data = jsonDecode(response.body);
 

@@ -912,7 +912,6 @@ class _CobroSheetState extends State<_CobroSheet> {
                       onPressed: () async {
                         Navigator.of(context).pop();
                         await SyncService.instance.flushNow();
-                        await _cargar();
                       },
                       icon: const Icon(Icons.cloud_upload, size: 18),
                       label: Text('NUEVA COBRANZA',

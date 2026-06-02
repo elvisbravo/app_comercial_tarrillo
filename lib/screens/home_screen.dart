@@ -266,47 +266,47 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           Expanded(
-            child: sectores.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Text(
-                        _isLoading
-                            ? 'Cargando...'
-                            : 'No tienes sectores asignados hoy.',
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(
-                          color: onSurfaceVariant,
-                          fontSize: 13,
-                        ),
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              children: [
+                if (sectores.isEmpty && !_isLoading)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'No tienes sectores asignados hoy.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        color: onSurfaceVariant,
+                        fontSize: 13,
                       ),
                     ),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    children: [
-                      for (var i = 0; i < sectores.length; i++)
-                        _buildDrawerItem(
-                          Icons.location_on,
-                          sectores[i].nombre,
-                          isActive: i == 0,
-                        ),
-                      const SizedBox(height: 24),
-                      _buildDrawerItem(Icons.settings, 'Configuración'),
-                      const Divider(color: outlineVariant),
-                      ListTile(
-                        leading: const Icon(Icons.logout, color: Color(0xFFBA1A1A)),
-                        title: Text(
-                          'Cerrar Sesión',
-                          style: GoogleFonts.inter(
-                            color: const Color(0xFFBA1A1A),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        onTap: _logout,
-                      ),
-                    ],
                   ),
+                if (sectores.isEmpty && _isLoading)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                for (var i = 0; i < sectores.length; i++)
+                  _buildDrawerItem(
+                    Icons.location_on,
+                    sectores[i].nombre,
+                    isActive: i == 0,
+                  ),
+              ],
+            ),
+          ),
+          const Divider(color: outlineVariant, height: 1),
+          _buildDrawerItem(Icons.settings, 'Configuración'),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Color(0xFFBA1A1A)),
+            title: Text(
+              'Cerrar Sesión',
+              style: GoogleFonts.inter(
+                color: const Color(0xFFBA1A1A),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            onTap: _logout,
           ),
           Container(
             padding: const EdgeInsets.all(24),

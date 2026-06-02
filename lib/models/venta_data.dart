@@ -120,15 +120,24 @@ class ClienteVenta {
   });
 
   factory ClienteVenta.fromJson(Map<String, dynamic> json) {
+    // Función helper para parsear números de forma segura
+    int? _parseInt(dynamic v) {
+      if (v == null) return null;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v);
+      return null;
+    }
+
     return ClienteVenta(
       id: (json['id'] as num?)?.toInt() ?? 0,
       documento: json['documento']?.toString(),
-      tipoDoc: (json['tipo_doc'] as num?)?.toInt(),
+      tipoDoc: _parseInt(json['tipo_doc']),
       nombre: (json['nombre'] ?? '').toString(),
       razonSocial: json['razon_social']?.toString(),
       direccion: json['direccion']?.toString(),
       telefono: json['telefono']?.toString(),
-      sectorId: (json['sector_id'] as num?)?.toInt(),
+      sectorId: _parseInt(json['sector_id']),
     );
   }
 }

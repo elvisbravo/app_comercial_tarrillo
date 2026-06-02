@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../data/connectivity_service.dart';
 import '../data/database_helper.dart';
@@ -77,16 +78,33 @@ class VentaService {
       getVentaData() async {
     try {
       final json = await ApiClient.get('/vendedor/venta');
+      debugPrint('[VentaService] Success, keys: ${json.keys.toList()}');
+      debugPrint('[VentaService] Productos count: ${(json['productos'] as List?)?.length ?? 0}');
+      debugPrint('[VentaService] Clientes count: ${(json['clientes'] as List?)?.length ?? 0}');
       await DatabaseHelper.instance.saveCache('cache_venta_data', _cacheKey, json);
       return (data: VentaData.fromJson(json), vinoDeCache: false, error: null);
     } on ApiException catch (e) {
+      debugPrint('[VentaService] ApiException status=${e.statusCode} msg=$e');
       if (e.isNetworkError) {
         final cached = await DatabaseHelper.instance
             .getCache('cache_venta_data', _cacheKey);
         if (cached != null) {
-          return (data: VentaData.fromJson(cached), vinoDeCache: true, error: null);
+          return (data: VentaData.fromJson(cached), vinoDeCache: true, error: 'Usando caché (offline): ${e.message}');
         }
-        return (data: null, vinoDeCache: false, error: e.message);
+        return (data: null, vinoDeCache: false, error: 'Error de red: ${e.message}');
+      }
+      rethrow;
+    } catch (e, st) {
+      debugPrint('[VentaService] Exception: $e');
+      debugPrint('[VentaService] StackTrace: $st');
+      // Intentar usar cache en caso de error de parsing
+      final cached = await DatabaseHelper.instance.getCache('cache_venta_data', _cacheKey);
+      if (cached != null) {
+        try {
+          return (data: VentaData.fromJson(cached), vinoDeCache: true, error: 'Usando caché (error de parseo): $e');
+        } catch (_) {
+          // Si el cache también falla, devolver error
+        }
       }
       rethrow;
     }
