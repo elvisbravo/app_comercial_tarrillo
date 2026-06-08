@@ -30,6 +30,7 @@ class _HistoryCollectionsScreenState extends State<HistoryCollectionsScreen> {
   String? _error;
   String _rango = '7d';
   final _searchController = TextEditingController();
+  String _search = '';
 
   @override
   void initState() {
@@ -41,6 +42,10 @@ class _HistoryCollectionsScreenState extends State<HistoryCollectionsScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _search = value);
   }
 
   ({String? desde, String? hasta}) _rangoFechas() {
@@ -70,7 +75,7 @@ class _HistoryCollectionsScreenState extends State<HistoryCollectionsScreen> {
       final data = await HistorialService.getCobros(
         fechaDesde: r.desde,
         fechaHasta: r.hasta,
-        buscar: _searchController.text.trim().isEmpty ? null : _searchController.text.trim(),
+        buscar: _search.isEmpty ? null : _search,
       );
       if (!mounted) return;
       setState(() {
@@ -187,6 +192,7 @@ class _HistoryCollectionsScreenState extends State<HistoryCollectionsScreen> {
             ),
             child: TextField(
               controller: _searchController,
+              onChanged: _onSearchChanged,
               onSubmitted: (_) => _cargar(),
               decoration: InputDecoration(
                 hintText: 'Buscar por cliente o N° recibo...',

@@ -47,6 +47,10 @@ class _HistorySalesScreenState extends State<HistorySalesScreen> {
     super.dispose();
   }
 
+  void _onSearchChanged(String value) {
+    setState(() => _search = value);
+  }
+
   ({String? desde, String? hasta}) _rangoFechas() {
     final hoy = DateTime.now();
     String fmt(DateTime d) =>
@@ -98,11 +102,15 @@ class _HistorySalesScreenState extends State<HistorySalesScreen> {
 
   List<VentaItem> get _ventasFiltradas {
     final all = _data?.items ?? const [];
+    final q = _search.toLowerCase();
     return all.where((v) {
       final matchTipo = _tipoPago == 'TODOS' ||
           (_tipoPago == 'CONTADO' && v.esContado) ||
           (_tipoPago == 'CREDITO' && v.esCredito);
-      return matchTipo;
+      final matchSearch = q.isEmpty ||
+          (v.clienteNombre?.toLowerCase().contains(q) ?? false) ||
+          (v.comprobante?.toLowerCase().contains(q) ?? false);
+      return matchTipo && matchSearch;
     }).toList();
   }
 
@@ -203,6 +211,7 @@ class _HistorySalesScreenState extends State<HistorySalesScreen> {
             ),
             child: TextField(
               controller: _searchController,
+              onChanged: _onSearchChanged,
               onSubmitted: (_) => _cargar(),
               decoration: InputDecoration(
                 hintText: 'Buscar por cliente o comprobante...',
@@ -437,7 +446,7 @@ class _HistorySalesScreenState extends State<HistorySalesScreen> {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  _icono( Icons.calendar_today, v.fecha ?? '-'),
+                  _icono(Icons.calendar_today, v.fecha ?? '-'),
                   const SizedBox(width: 14),
                   _icono(Icons.access_time, v.hora ?? '-'),
                   const Spacer(),

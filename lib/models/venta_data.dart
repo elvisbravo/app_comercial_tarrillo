@@ -71,6 +71,7 @@ class ProductoVenta {
   final int stock;
   final double precioContado;
   final double precioCredito;
+  final int ubicacionId;
 
   ProductoVenta({
     required this.id,
@@ -79,6 +80,7 @@ class ProductoVenta {
     required this.stock,
     required this.precioContado,
     required this.precioCredito,
+    required this.ubicacionId,
   });
 
   factory ProductoVenta.fromJson(Map<String, dynamic> json) {
@@ -94,6 +96,7 @@ class ProductoVenta {
       stock: _i(json['stock']),
       precioContado: _d(json['precio_contado']),
       precioCredito: _d(json['precio_credito']),
+      ubicacionId: _i(json['ubicacion_id']),
     );
   }
 }

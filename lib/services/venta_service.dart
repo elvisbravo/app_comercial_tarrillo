@@ -54,11 +54,22 @@ class VentaResult {
   });
 
   factory VentaResult.fromResponse(Map<String, dynamic> body) {
-    final respuesta = (body['respuesta'] ?? '').toString().toLowerCase();
+    // Aceptar múltiples formas de indicar éxito: "ok", "true", 1, true
+    final rawRespuesta = body['respuesta'];
+    final respuestaStr = rawRespuesta?.toString().toLowerCase() ?? '';
     final creditoActivo =
         body['credito_activo'] == true && body['credito'] is Map;
+
+    // Éxito solo para "ok" explícito. Warning (crédito activo) NO es éxito;
+    // la UI debe mostrar el modal de confirmación primero.
+    final isOk = respuestaStr == 'ok' ||
+        respuestaStr == 'true' ||
+        respuestaStr == '1' ||
+        rawRespuesta == true ||
+        rawRespuesta == 1;
+
     return VentaResult(
-      exito: respuesta == 'ok' && !creditoActivo,
+      exito: isOk,
       mensaje: body['mensaje']?.toString() ?? body['message']?.toString(),
       creditoActivo: creditoActivo,
       credito:
@@ -138,6 +149,13 @@ class VentaService {
     required List<num> montosParticionados,
     required List<ItemVenta> items,
     int? idVendedor,
+    bool confirmarCredito = false,
+    // Campos de crédito (mismo que el web)
+    String conceptoCreditoId = '',
+    String cuotasData = '[]',
+    double cuotaInicial = 0,
+    String inicialFormaPago = '',
+    String inicialNumeroOperacion = '',
   }) async {
     final idLocal = const Uuid().v4();
     final fechaOffline = DateTime.now().toIso8601String();
@@ -163,6 +181,19 @@ class VentaService {
       'ubicacion': <int>[],
       'id_local': idLocal,
       'fecha_offline_created': fechaOffline,
+      'confirmar_credito': confirmarCredito,
+      // Campos que el backend espera pero no estaban en el request
+      'fecha_venta': fechaOffline.split('T').first, // YYYY-MM-DD
+      'total_recibido': totalVenta,
+      'vuelto': 0.0,
+      'numero_operacion': '',
+      'banco_venta': null,
+      // Campos de crédito (mismo que el web)
+      'concepto_credito_id': conceptoCreditoId,
+      'cuotas_data': cuotasData,
+      'cuota_inicial': cuotaInicial,
+      'inicial_forma_pago': inicialFormaPago,
+      'inicial_numero_operacion': inicialNumeroOperacion,
     };
 
     for (final item in items) {
@@ -181,9 +212,14 @@ class VentaService {
     }
 
     try {
+      debugPrint('[VentaService] Guardando venta - id_local: $idLocal');
+      debugPrint('[VentaService] Body keys: ${body.keys.toList()}');
+      debugPrint('[VentaService] Items count: ${items.length}');
       final raw = await ApiClient.post('/vendedor/venta/guardar', body);
+      debugPrint('[VentaService] Response: $raw');
       return VentaResult.fromResponse(raw);
     } on ApiException catch (e) {
+      debugPrint('[VentaService] ApiException: ${e.statusCode} - ${e.message}');
       if (e.isNetworkError) {
         return _encolarYDevolver(idLocal: idLocal, body: body);
       }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -65,6 +66,14 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
   bool _isSaving = false;
   bool _isConsulting = false;
 
+  // Campos de crédito
+  String _conceptoCreditoId = '';
+  int _numCuotas = 1;
+  DateTime _fechaPrimeraCuota = DateTime.now().add(const Duration(days: 30));
+  double _cuotaInicial = 0;
+  FormaPago? _inicialFormaPago;
+  String _inicialNumeroOperacion = '';
+
   // Resultados
   String? _savedComprobante;
 
@@ -108,7 +117,12 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
       setState(() {
         _data = result.data;
         _isLoading = false;
-        _comprobante = _data!.comprobantes.isNotEmpty ? _data!.comprobantes.first : null;
+        _comprobante = _data!.comprobantes.isNotEmpty
+            ? _data!.comprobantes.firstWhere(
+                (c) => c.nombre.toUpperCase().contains('NOTA DE VENTA'),
+                orElse: () => _data!.comprobantes.first,
+              )
+            : null;
         _tipoDocIdentidad = _data!.tipoDocumentos.isNotEmpty
             ? _data!.tipoDocumentos.firstWhere(
                 (t) => t.nombre.toUpperCase().contains('DNI'),
@@ -181,7 +195,7 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
             precio: precio,
             cantidad: 1,
             maxStock: p.stock,
-            ubicacion: _data?.movilesUbicacionId ?? 0,
+            ubicacion: p.ubicacionId > 0 ? p.ubicacionId : (_data?.movilesUbicacionId ?? 0),
           ));
         } else {
           _toast('Sin stock: ${p.nombre}');
@@ -201,8 +215,16 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
     });
   }
 
+  void _aumentarCantidad(int index) {
+    setState(() {
+      _cart[index].cantidad += 1;
+    });
+  }
+
   void _eliminarLinea(int index) {
-    setState(() => _cart.removeAt(index));
+    setState(() {
+      _cart.removeAt(index);
+    });
   }
 
   void _vaciarCarrito() {
@@ -237,7 +259,9 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
               codigoBarras: null,
               stock: line.maxStock,
               precioContado: line.precio,
-              precioCredito: line.precio),
+              precioCredito: line.precio,
+              ubicacionId: line.ubicacion,
+          ),
         );
         if (prod != null) {
           line.precio = nuevo == 'CREDITO' ? prod.precioCredito : prod.precioContado;
@@ -366,18 +390,44 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
     );
   }
 
-  Future<void> _guardarVenta() async {
+  // =================== Helpers Crédito ===================
+
+  String _generarCuotasData() {
+    final cuotas = <Map<String, dynamic>>[];
+    final numCuotas = _numCuotas;
+    final totalVenta = _total;
+    final inicial = _cuotaInicial;
+    final capital = (totalVenta - inicial).clamp(0, double.infinity);
+    final montoCuota = numCuotas > 0 ? (capital / numCuotas) : 0.0;
+
+    // Si hay inicial, agregarla como cuota 0
+    if (inicial > 0) {
+      cuotas.add({
+        'numero': 0,
+        'monto': inicial.toStringAsFixed(2),
+        'fecha_vencimiento': DateTime.now().toIso8601String().split('T').first,
+      });
+    }
+
+    // Agregar las cuotas
+    var currentDate = _fechaPrimeraCuota;
+    for (var i = 1; i <= numCuotas; i++) {
+      cuotas.add({
+        'numero': i,
+        'monto': montoCuota.toStringAsFixed(2),
+        'fecha_vencimiento': currentDate.toIso8601String().split('T').first,
+      });
+      currentDate = DateTime(currentDate.year, currentDate.month + 1, currentDate.day);
+    }
+
+    return jsonEncode(cuotas);
+  }
+
+  Future<void> _guardarVenta({bool confirmarCredito = false}) async {
     if (_isSaving) return;
     if (_formaPago == null) {
       _toast('Seleccione una forma de pago');
       return;
-    }
-    if (_esEfectivo) {
-      final recibido = double.tryParse(_totalRecibidoController.text) ?? 0;
-      if (recibido < _total) {
-        _toast('El monto recibido es menor al total');
-        return;
-      }
     }
     if (_esOperativo && _numOperacionController.text.trim().isEmpty) {
       _toast('Ingrese el número de operación');
@@ -414,6 +464,12 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
                   ubicacion: l.ubicacion,
                 ))
             .toList(),
+        confirmarCredito: confirmarCredito,
+        conceptoCreditoId: _conceptoCreditoId,
+        cuotasData: _generarCuotasData(),
+        cuotaInicial: _cuotaInicial,
+        inicialFormaPago: _inicialFormaPago?.id.toString() ?? '',
+        inicialNumeroOperacion: _inicialNumeroOperacion,
       );
 
       if (!mounted) return;
@@ -438,8 +494,8 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
       _toast(result.mensaje ?? 'No se pudo registrar la venta');
     } on ApiException catch (e) {
       _toast(e.message);
-    } catch (_) {
-      _toast('Error de conexión al guardar la venta');
+    } catch (e, st) {
+      _toast('Error de conexión al guardar la venta: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -725,19 +781,38 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: outlineVariant),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: Text('CANCELAR',
+                            style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                      ),
                     ),
-                    child: Text('ENTENDIDO',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _guardarVenta(confirmarCredito: true);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: danger,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: Text('CONFIRMAR',
+                            style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1252,30 +1327,34 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.75,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (_, ctrl) => Container(
-          decoration: const BoxDecoration(
-            color: surfaceContainerLowest,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
+      builder: (_) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return DraggableScrollableSheet(
+            initialChildSize: 0.75,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (_, ctrl) => Container(
+              decoration: const BoxDecoration(
+                color: surfaceContainerLowest,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
-              Expanded(child: _buildCarritoContent(ctrl)),
-            ],
-          ),
-        ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Expanded(child: _buildCarritoContent(ctrl, setSheetState)),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1287,7 +1366,15 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
     );
   }
 
-  Widget _buildCarritoContent(ScrollController? scrollController) {
+  Widget _buildCarritoContent(ScrollController? scrollController, [StateSetter? setSheetState]) {
+    // Helper to force rebuild the sheet
+    void rebuild() {
+      if (setSheetState != null) {
+        setSheetState(() {});
+      }
+      setState(() {});
+    }
+
     return Column(
       children: [
         Container(
@@ -1337,16 +1424,22 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
                   controller: scrollController,
                   padding: const EdgeInsets.all(12),
                   itemCount: _cart.length,
-                  itemBuilder: (_, i) => _buildCartItem(i),
+                  itemBuilder: (_, i) => _buildCartItem(i, setSheetState),
                 ),
         ),
         Container(
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+          ),
+          decoration: BoxDecoration(
             color: surfaceContainerLowest,
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))],
+            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, -4))],
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1359,22 +1452,23 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
                           fontSize: 28, fontWeight: FontWeight.w700, color: primary)),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton.icon(
                   onPressed: _cart.isEmpty ? null : _abrirCobro,
-                  icon: const Icon(Icons.point_of_sale),
+                  icon: const Icon(Icons.point_of_sale, size: 24),
                   label: Text('COBRAR',
                       style: GoogleFonts.manrope(
-                          fontWeight: FontWeight.w700, fontSize: 16)),
+                          fontWeight: FontWeight.w700, fontSize: 18, letterSpacing: 0.5)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primary,
                     foregroundColor: Colors.white,
                     disabledBackgroundColor: Colors.grey[300],
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(14)),
+                    elevation: 2,
                   ),
                 ),
               ),
@@ -1385,78 +1479,154 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
     );
   }
 
-  Widget _buildCartItem(int index) {
+  Widget _buildCartItem(int index, [StateSetter? setSheetState]) {
     final item = _cart[index];
+
+    void _handleEliminar() {
+      _eliminarLinea(index);
+      if (setSheetState != null) {
+        setSheetState(() {});
+      }
+      setState(() {});
+    }
+
+    void _handleMenos() {
+      _quitarCantidad(index);
+      if (setSheetState != null) {
+        setSheetState(() {});
+      }
+      setState(() {});
+    }
+
+    void _handleMas() {
+      _aumentarCantidad(index);
+      if (setSheetState != null) {
+        setSheetState(() {});
+      }
+      setState(() {});
+    }
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: surfaceContainerLow,
+        color: surfaceContainerLowest,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: outlineVariant),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(item.nombre,
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 4),
-                Text('S/ ${item.precio.toStringAsFixed(2)} c/u',
-                    style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 11)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: surfaceContainerLowest,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: outlineVariant),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: () => _quitarCantidad(index),
-                  icon: Icon(
-                    item.cantidad > 1 ? Icons.remove : Icons.delete_outline,
-                    size: 18,
-                    color: item.cantidad > 1 ? primary : danger,
+          // Fila principal: info del producto
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.nombre,
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'S/ ${item.precio.toStringAsFixed(2)} c/u',
+                      style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Subtotal
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'S/ ${item.subtotal.toStringAsFixed(2)}',
+                    style: GoogleFonts.manrope(
+                        fontWeight: FontWeight.w700, fontSize: 16, color: primary),
                   ),
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                ),
-                Container(
-                  constraints: const BoxConstraints(minWidth: 26),
-                  alignment: Alignment.center,
-                  child: Text('${item.cantidad.toInt()}',
-                      style: GoogleFonts.manrope(
-                          fontWeight: FontWeight.w700, color: primary, fontSize: 14)),
-                ),
-                IconButton(
-                  onPressed: () => _agregarProducto(ProductoVenta(
-                    id: item.idProducto,
-                    nombre: item.nombre,
-                    codigoBarras: null,
-                    stock: item.maxStock,
-                    precioContado: item.precio,
-                    precioCredito: item.precio,
-                  )),
-                  icon: const Icon(Icons.add, size: 18, color: primary),
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                ),
-              ],
-            ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${item.cantidad.toInt()} und.',
+                    style: GoogleFonts.inter(color: onSurfaceVariant, fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Text('S/ ${item.subtotal.toStringAsFixed(2)}',
-              style: GoogleFonts.manrope(
-                  fontWeight: FontWeight.w700, fontSize: 14, color: primary)),
+          const SizedBox(height: 14),
+          // Fila de controles
+          Row(
+            children: [
+              // Botón eliminar
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _handleEliminar,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: danger.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.delete_outline, size: 22, color: danger),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Controles de cantidad
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Botón menos
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _handleMenos,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            child: const Icon(Icons.remove, size: 24, color: primary),
+                          ),
+                        ),
+                      ),
+                      // Cantidad
+                      Text(
+                        '${item.cantidad.toInt()}',
+                        style: GoogleFonts.manrope(
+                          fontWeight: FontWeight.w700,
+                          color: primary,
+                          fontSize: 20,
+                        ),
+                      ),
+                      // Botón más
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _handleMas,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            child: const Icon(Icons.add, size: 24, color: primary),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -1640,7 +1810,9 @@ class _CobroSheetState extends State<_CobroSheet> {
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton.icon(
-                        onPressed: s._isSaving ? null : s._guardarVenta,
+                        onPressed: () {
+                          s._guardarVenta();
+                        },
                         icon: s._isSaving
                             ? const SizedBox(
                                 width: 18,
