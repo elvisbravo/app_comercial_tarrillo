@@ -68,6 +68,7 @@ class ApiClient {
           await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
       debugPrint('[ApiClient] Response status: ${response.statusCode}');
       debugPrint('[ApiClient] Response body length: ${response.body.length}');
+      debugPrint('[ApiClient] Response body: ${response.body}');
 
       return _handle(response);
     } on SocketException catch (e) {

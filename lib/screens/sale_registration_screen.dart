@@ -280,10 +280,14 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
         return;
       }
       try {
+        debugPrint('[ClienteSearch] Buscando: $q');
         final lista = await VentaService.buscarClientes(q);
+        debugPrint('[ClienteSearch] Resultados: ${lista.length}');
         if (!mounted) return;
         setState(() => _clienteSugeridos = lista);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[ClienteSearch] Error: $e');
+      }
     });
   }
 
@@ -320,12 +324,14 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
       return;
     }
     final tipo = _tipoDocIdentidad?.id ?? 1;
+    debugPrint('[ConsultarDNI] Tipo: $tipo, Num: $num');
     setState(() => _isConsulting = true);
     try {
       final resp = await VentaService.consultarDniRuc(
         tipoDocumento: tipo,
         numDoc: num,
       );
+      debugPrint('[ConsultarDNI] Respuesta: $resp');
 
       String? nombre;
       String? direccion;
