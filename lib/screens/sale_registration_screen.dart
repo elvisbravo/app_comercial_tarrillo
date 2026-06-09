@@ -157,12 +157,6 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
     return n.contains('efectivo');
   }
 
-  bool get _esOperativo {
-    final n = _formaPago?.nombre.toLowerCase() ?? '';
-    return n.contains('yape') || n.contains('plin') ||
-        n.contains('transfer') || n.contains('operaci');
-  }
-
   double get _total {
     return _cart.fold<double>(0, (s, l) => s + l.subtotal);
   }
@@ -435,11 +429,11 @@ class _SaleRegistrationScreenState extends State<SaleRegistrationScreen> {
       _toast('Seleccione una forma de pago');
       return;
     }
-    if (_esOperativo && _numOperacionController.text.trim().isEmpty) {
+    if (_esEfectivo && _numOperacionController.text.trim().isEmpty) {
       _toast('Ingrese el número de operación');
       return;
     }
-    if (_esOperativo && _banco == null) {
+    if (_esEfectivo && _banco == null) {
       _toast('Seleccione un banco');
       return;
     }
@@ -1794,7 +1788,7 @@ class _CobroSheetState extends State<_CobroSheet> {
                         ),
                       ],
                     ],
-                    if (s._esOperativo) ...[
+                    if (s._esEfectivo) ...[
                       const SizedBox(height: 12),
                       _field('N° de operación', s._numOperacionController),
                       const SizedBox(height: 12),
